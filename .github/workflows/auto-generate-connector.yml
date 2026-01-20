@@ -1,0 +1,197 @@
+name: Auto-Generate Connector
+
+on:
+  repository_dispatch:
+    types: [openapi-update]
+
+jobs:
+  auto-generate:
+    name: Auto-generate connector
+    runs-on: ubuntu-22.04
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Setup Ballerina
+        uses: ballerina-platform/setup-ballerina@v1.1.3
+        with:
+          version: "2201.10.0"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: "temurin"
+          java-version: 21.0.3
+
+      - name: Verify API Key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Error: ANTHROPIC_API_KEY secret is not set"
+            exit 1
+          fi
+          echo "✅ API key is configured"
+
+      - name: Clone Connector Automator
+        run: |
+          echo "📦 Cloning connector automator tool..."
+          git clone -b connector-automation https://github.com/ballerina-platform/ballerina-library.git temp-library
+          cp -r temp-library/connector_automator ./
+          rm -rf temp-library
+          echo "✅ Connector automator cloned successfully"
+
+      - name: Download Updated OpenAPI Spec
+        run: |
+          echo "📥 Downloading updated OpenAPI spec..."
+          mkdir -p docs/spec
+          
+          # Extract spec URL from event payload
+          SPEC_URL="${{ github.event.client_payload.openapi_url }}"
+          
+          if [[ "$SPEC_URL" == *.json ]]; then
+            curl -L -o docs/spec/openapi.json "$SPEC_URL"
+            echo "EXTENSION=json" >> $GITHUB_ENV
+            echo "SPEC_FILE=openapi.json" >> $GITHUB_ENV
+          elif [[ "$SPEC_URL" == *.yaml ]] || [[ "$SPEC_URL" == *.yml ]]; then
+            curl -L -o docs/spec/openapi.yaml "$SPEC_URL"
+            echo "EXTENSION=yaml" >> $GITHUB_ENV
+            echo "SPEC_FILE=openapi.yaml" >> $GITHUB_ENV
+          else
+            echo "❌ Unsupported file extension"
+            exit 1
+          fi
+          
+          echo "✅ Downloaded: $SPEC_FILE"
+
+      - name: Create Branch
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BRANCH_NAME="auto-update-connector-${TIMESTAMP}"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          echo "✅ Created branch: $BRANCH_NAME"
+
+      - name: Run Connector Generation Pipeline
+        run: |
+          cd connector_automator
+          SPEC_PATH="${GITHUB_WORKSPACE}/docs/spec/${{ env.SPEC_FILE }}"
+          OUTPUT_PATH="${GITHUB_WORKSPACE}"
+
+          echo "🔧 Running connector generation..."
+          echo "Spec: $SPEC_PATH"
+          echo "Output: $OUTPUT_PATH"
+
+          # Create Config.toml
+          cat > Config.toml << EOF
+          [connector_automator.code_fixer]
+          maxIterations = 3
+
+          [connector_automator.utils]
+          apiKey = "${{ secrets.ANTHROPIC_API_KEY }}"
+          EOF
+
+          # Run pipeline
+          bal run -- pipeline "$SPEC_PATH" "$OUTPUT_PATH" "yes" "quiet"
+          
+          echo "✅ Connector generation completed"
+
+      - name: Cleanup Spec Files
+        run: |
+          cd docs/spec
+          
+          # Rename original
+          if [ -f "${{ env.SPEC_FILE }}" ]; then
+            mv "${{ env.SPEC_FILE }}" "original_openapi.${{ env.EXTENSION }}"
+          fi
+          
+          # Keep aligned spec as openapi.json
+          if [ -f "aligned_ballerina_openapi.json" ]; then
+            mv "aligned_ballerina_openapi.json" "openapi.json"
+          fi
+          
+          # Remove intermediate files
+          rm -f flattened_openapi.* aligned_ballerina_openapi.yaml aligned_ballerina_openapi.yml
+          
+          echo "✅ Spec files cleaned up"
+
+      - name: Remove Temporary Files
+        run: |
+          rm -rf connector_automator
+          find . -name "Dependencies.toml" -type f -delete
+          find . -name "*.backup" -type f -delete
+          find . -name "target" -type d -exec rm -rf {} +
+          echo "✅ Cleanup completed"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit Changes
+        id: commit
+        run: |
+          git add .
+          
+          if git diff --cached --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  No changes to commit"
+          else
+            SPEC_VERSION="${{ github.event.client_payload.spec_version }}"
+            git commit -m "chore: Auto-update connector for OpenAPI spec ${SPEC_VERSION}
+
+          Updated connector generated from OpenAPI specification version ${SPEC_VERSION}
+          
+          🤖 Automated by OpenAPI Dependabot"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Changes committed"
+          fi
+
+      - name: Push Branch
+        if: steps.commit.outputs.has_changes == 'true'
+        run: |
+          git push origin "$BRANCH_NAME"
+          echo "✅ Branch pushed: $BRANCH_NAME"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Create Pull Request
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          SPEC_VERSION="${{ github.event.client_payload.spec_version }}"
+          
+          gh pr create \
+            --title "chore: Auto-update connector for OpenAPI spec ${SPEC_VERSION}" \
+            --body "## 🤖 Automated Connector Update
+
+          ### What Changed:
+          - OpenAPI specification updated to version **${SPEC_VERSION}**
+          - Connector regenerated using AI-powered pipeline
+          - All type definitions and client methods updated
+
+          ### Generated Components:
+          - ✅ Sanitized OpenAPI specification
+          - ✅ Ballerina client library
+          - ✅ Type definitions
+          - ✅ Usage examples
+          - ✅ Test suite with mock server
+          - ✅ Documentation
+
+          ### ⚠️ Before Merging:
+          - [ ] Review generated code changes
+          - [ ] Test with real API credentials
+          - [ ] Verify examples work correctly
+          - [ ] Check documentation accuracy
+
+          ---
+          🔗 Triggered by OpenAPI spec update in [api-specs](https://github.com/api-specs-test/api-specs)" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --label "automated,openapi-update,connector-regeneration"
+          
+          echo "✅ Pull request created!"
