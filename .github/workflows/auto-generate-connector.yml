@@ -3,6 +3,7 @@ name: Auto-Generate Connector
 on:
   repository_dispatch:
     types: [openapi-update]
+  workflow_dispatch:  # Also allow manual trigger for testing
 
 jobs:
   auto-generate:
