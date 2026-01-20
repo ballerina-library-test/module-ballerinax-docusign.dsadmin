@@ -1,142 +1,101 @@
-## Package overview
+## Overview
 
-[DocuSign](https://www.docusign.com) is a digital transaction management platform that enables users to securely sign, send, and manage documents electronically.
+[DocuSign](https://www.docusign.com/) is a leading electronic signature and digital transaction management platform that enables organizations to securely send, sign, and manage documents digitally, streamlining business processes and eliminating paper-based workflows.
 
-The Ballerina DocuSign Admin connector integrates with the DocuSign platform, provides APIs to efficiently manages DocuSign users and permissions across all the accounts and domains within Ballerina applications. It supports [DocuSign Admin API V2](https://github.com/docusign/OpenAPI-Specifications/blob/master/admin.rest.swagger-v2.1.json).
-
+The `ballerinax/docusign.dsadmin` package offers APIs to connect and interact with [DocuSign Admin API](https://developers.docusign.com/docs/admin-api/) endpoints, specifically based on [DocuSign Admin API v2.1](https://developers.docusign.com/docs/admin-api/reference/).
 ## Setup guide
 
-To utilize the DocuSign Admin connector, you must have access to the DocuSign REST API through a DocuSign account.
+To use the DocuSign Admin connector, you must have access to the DocuSign Admin API through a [DocuSign developer account](https://developers.docusign.com/) and obtain an API access token. If you do not have a DocuSign account, you can sign up for one [here](https://www.docusign.com/products/electronic-signature).
 
-### Step 1: Create a DocuSign account
+### Step 1: Create a DocuSign Account
 
-In order to use the DocuSign Admin connector, you need to first create the DocuSign credentials for the connector to interact with DocuSign.
+1. Navigate to the [DocuSign website](https://www.docusign.com/) and sign up for an account or log in if you already have one.
 
-- You can [create an account](https://go.docusign.com/o/sandbox/) for free at the [Developer Center](https://developers.docusign.com/).
+2. Ensure you have a Business Pro or higher plan, as the DocuSign Admin API is restricted to organization administrators on these plans.
 
-    ![Create DocuSign account](https://raw.githubusercontent.com/ballerina-platform/module-ballerinax-docusign.dsadmin/main/ballerina/resources/create-account.png)
+### Step 2: Generate an API Access Token
 
-### Step 2: Create integration key and secret key
+1. Log in to your DocuSign account as an organization administrator.
 
-1. **Create an integration key**: Visit the [Apps and Keys](https://admindemo.docusign.com/apps-and-keys) page on DocuSign. Click on `Add App and Integration Key,` provide a name for the app, and click `Create App`. This will generate an `Integration Key`.
+2. Navigate to Settings in the top navigation bar, then select Apps and Keys from the left sidebar under Integrations.
 
-    ![Create integration key](https://raw.githubusercontent.com/ballerina-platform/module-ballerinax-docusign.dsadmin/main/ballerina/resources/app-and-integration-key.png)
+3. In the Apps and Keys section, scroll down to the My Apps & Keys area and select Add App and Integration Key.
 
-2. **Generate a secret key**: Under the `Authentication` section, click on `Add Secret Key`. This will generate a secret Key. Make sure to copy and save both the `Integration Key` and `Secret Key`.
+4. Fill in the required information for your application and click Create App.
 
-    ![Add secret key](https://raw.githubusercontent.com/ballerina-platform/module-ballerinax-docusign.dsadmin/main/ballerina/resources/add-secret-key.png)
+5. Once created, you can generate access tokens using OAuth 2.0 authentication or use the integration key with JWT authentication.
 
-### Step 3: Generate refresh token
-
-1. **Add a redirect URI**: Click on `Add URI` and enter your redirect URI (e.g., <http://www.example.com/callback>).
-
-    ![Add redirect URI](https://raw.githubusercontent.com/ballerina-platform/module-ballerinax-docusign.dsadmin/main/ballerina/resources/add-redirect-uri.png)
-
-2. **Generate the encoded key**: The `Encoded Key` is a base64 encoded string of your `Integration key` and `Secret Key` in the format `{IntegrationKey:SecretKey}`. You can generate this in your web browser's console using the `btoa()` function: `btoa('IntegrationKey:SecretKey')`. You can either generate the encoded key from an online base64 encoder.
-
-3. **Get the authorization code**: Visit the following URL in your web browser, replacing `{iKey}` with your Integration Key and `{redirectUri}` with your redirect URI.
-
-    ```url
-    https://account-d.docusign.com/oauth/auth?response_type=code&scope=signature%20organization_read%20group_read%20account_read%20permission_read%20user_read%20user_write&client_id={iKey}&redirect_uri={redirectUri}
-    ```
-
-    This will redirect you to your redirect URI with a `code` query parameter. This is your `authorization code`.
-
-4. **Get the refresh token**: Use the following `curl` command to get the refresh token, replacing `{encodedKey}` with your Encoded Key and `{codeFromUrl}` with your `authorization code`.
-
-    ```bash
-    curl --location 'https://account-d.docusign.com/oauth/token' \
-    --header 'Authorization: Basic {encodedKey}' \
-    --header 'Content-Type: application/x-www-form-urlencoded' \
-    --data-urlencode 'code={codeFromUrl}' \
-    --data-urlencode 'grant_type=authorization_code'
-    ```
-
-    The response will contain your refresh token. Use `https://account-d.docusign.com/oauth/token` as the refresh URL.
-
-Remember to replace `{IntegrationKey:SecretKey}`, `{iKey}`, `{redirectUri}`, `{encodedKey}`, and `{codeFromUrl}` with your actual values.
-
-Above is about using the DocuSign Admin API in the developer mode. If your app is ready to go live, you need to follow the guidelines given [here](https://developers.docusign.com/docs/admin-api/go-live/) to make it work.
-
+> **Tip:** You must copy and store this key somewhere safe. It won't be visible again in your account settings for security reasons.
 ## Quickstart
 
-To use the DocuSign Click connector in your Ballerina project, modify the `.bal` file as follows.
+To use the `DocuSign DS Admin` connector in your Ballerina application, update the `.bal` file as follows:
 
 ### Step 1: Import the module
 
-Import the `ballerinax/docusign.dsadmin` module into your Ballerina project.
-
 ```ballerina
-import ballerinax/docusign.dsadmin;
+import ballerinax/docusign.dsadmin as dsadmin;
 ```
 
 ### Step 2: Instantiate a new connector
 
-Create a `dsadmin:ConnectionConfig` with the obtained OAuth2.0 tokens and initialize the connector with it.
+1. Create a `Config.toml` file and configure the obtained access token:
+
+```toml
+token = "<Your_DocuSign_Access_Token>"
+```
+
+2. Create a `dsadmin:ConnectionConfig` and initialize the client:
 
 ```ballerina
-configurable string clientId = ?;
-configurable string clientSecret = ?;
-configurable string refreshToken = ?;
-configurable string refreshUrl = ?;
+configurable string token = ?;
 
-dsadmin:Client docuSignClient = check new({
+final dsadmin:Client dsadminClient = check new({
     auth: {
-        clientId,
-        clientSecret,
-        refreshToken,
-        refreshUrl
+        token
     }
 });
 ```
 
 ### Step 3: Invoke the connector operation
 
-You can now utilize the operations available within the connector.
+Now, utilize the available connector operations.
+
+#### Create a new user
 
 ```ballerina
 public function main() returns error? {
-
-    dsadmin:OrganizationsResponse orgResponse = check docuSignClient->/v2/organizations();
-    io:println("Organizations: ", orgResponse);
-
-    dsadmin:OrganizationResponse[]? organizations = orgResponse.organizations;
-    if organizations !is dsadmin:OrganizationResponse[] {
-        io:println("Error: organizations not found");
-        return;
-    }
-    dsadmin:OrganizationResponse organization = organizations[0];
-    dsadmin:NewUserResponse newUserResponse = check docuSignClient->/v2/organizations/[<string>organization.id]/users.post(
-        {
-            user_name: "user1",
-            first_name: "name1",
-            email: "user1@docusignmail.com",
-            accounts: [
-                {
-                    id: accountId,
-                    company_name: "Company"
+    dsadmin:NewUserRequest newUser = {
+        email: "john.doe@example.com",
+        firstName: "John",
+        lastName: "Doe",
+        userName: "John Doe",
+        languageCulture: "en",
+        accounts: [
+            {
+                id: "your-account-id",
+                permissionProfile: {
+                    id: 1,
+                    name: "DocuSign Sender"
                 }
-            ]
-        }
-    );
-    io:println("New user created: ", newUserResponse);
+            }
+        ]
+    };
+
+    dsadmin:NewUserResponse response = check dsadminClient->/v2/organizations/[organizationId]/users.post(newUser);
 }
 ```
 
 ### Step 4: Run the Ballerina application
 
-Use the following command to compile and run the Ballerina program.
-
 ```bash
 bal run
 ```
-
 ## Examples
 
-The DocuSign Admin connector provides practical examples illustrating usage in various scenarios. Explore these [examples](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples).
+The `docusign.dsadmin` connector provides practical examples illustrating usage in various scenarios. Explore these [examples](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples), covering the following use cases:
 
-1. [Manage user information with DocuSign Admin](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/manage-user-information)
-    This example shows how to use DocuSign Admin API to to create users and retrieve user informations related to eSignature tasks.
-
-2. [Access permissions in user accounts](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/permissions-in-organizations)
-    This example shows how to use DocuSign Admin API to to view permission details of the user accounts.
+1. [User lifecycle management](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/user-lifecycle-management) - Demonstrates how to manage the complete lifecycle of users from creation to deactivation.
+2. [Automated user onboarding](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/automated-user-onboarding) - Illustrates automating the process of onboarding new users to the DocuSign platform.
+3. [Manage user information](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/manage-user-information) - Shows how to retrieve, update, and manage user profile information and settings.
+4. [Compliance export workflow](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/compliance-export-workflow) - Demonstrates how to export compliance data and manage regulatory reporting workflows.
+5. [Permissions in organizations](https://github.com/ballerina-platform/module-ballerinax-docusign.dsadmin/tree/main/examples/permissions-in-organizations) - Illustrates managing user permissions and access controls within organizational structures.
